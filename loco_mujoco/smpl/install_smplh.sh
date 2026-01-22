@@ -37,8 +37,11 @@ fi
     # Create Conda environment
     conda create --name smplh_model_conversion_env python=3.10 -y
 
+    # chumpy requires no build isolation to avoid issues with 'pip'
+    conda run --name smplh_model_conversion_env  pip install chumpy --no-build-isolation
+
     # Install required Python packages
-    conda run --name smplh_model_conversion_env pip install 'numpy<1.23.0' chumpy tqdm pyyaml
+    conda run --name smplh_model_conversion_env pip install 'numpy<1.23.0' tqdm pyyaml
 
     # Run the Python script
     conda run --name smplh_model_conversion_env python "$GENERATE_SCRIPT_PATH" --smpl-conf-file "$SMPL_CONF_PATH"
