@@ -18,7 +18,7 @@ class DefaultDatasetConf:
 
     task: Union[str, list]  = "walk"
     dataset_type: str = "mocap"
-    debug: bool = False
+    debug: bool = True
 
     def __post_init__(self):
         assert self.dataset_type in ["mocap", "pretrained"], f"Unknown dataset type: {self.dataset_type}"
@@ -64,6 +64,24 @@ class LAFAN1DatasetConf:
     def __post_init__(self):
         assert self.dataset_name is not None or self.dataset_group is not None, ("Either `dataset_name` or "
                                                                                  "`dataset_group` must be set.")
+
+
+@dataclass
+class HumanML3DDatasetConf:
+    """
+    Configuration for loading HumanML3D datasets via text prompts.
+
+    Attributes:
+        prompts (Union[str, list]): A text prompt or list of prompts to retrieve motions for.
+        dataset_path (str): Path to the HumanML3D root directory (must contain 'texts' and 'amass_data').
+    """
+
+    prompts: Union[str, list] = None
+
+    def __post_init__(self):
+        assert self.prompts is not None, (
+            "`prompts` must be set."
+        )
 
 
 @dataclass

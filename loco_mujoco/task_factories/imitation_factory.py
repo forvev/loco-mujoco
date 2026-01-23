@@ -12,9 +12,16 @@ from loco_mujoco.smpl.const import AMASS_LOCOMOTION_DATASETS
 from loco_mujoco.datasets.humanoids.LAFAN1 import load_lafan1_trajectory
 from loco_mujoco.datasets.humanoids.LAFAN1 import (LAFAN1_LOCOMOTION_DATASETS,
                                                    LAFAN1_DANCE_DATASETS, LAFAN1_ALL_DATASETS)
+from loco_mujoco.datasets.humanoids.HumanML3D.load import load_humanml3d_by_prompt
 
 from .base import TaskFactory
-from .dataset_confs import DefaultDatasetConf, AMASSDatasetConf, LAFAN1DatasetConf, CustomDatasetConf
+from .dataset_confs import (
+    DefaultDatasetConf,
+    AMASSDatasetConf,
+    LAFAN1DatasetConf,
+    CustomDatasetConf,
+    HumanML3DDatasetConf,
+)
 
 
 class ImitationFactory(TaskFactory):
@@ -34,6 +41,7 @@ class ImitationFactory(TaskFactory):
              default_dataset_conf: Union[DefaultDatasetConf, Dict, DictConfig] = None,
              amass_dataset_conf: Union[AMASSDatasetConf, Dict, DictConfig] = None,
              lafan1_dataset_conf: Union[LAFAN1DatasetConf, Dict, DictConfig] = None,
+             humanml3d_dataset_conf: Union[HumanML3DDatasetConf, Dict, DictConfig] = None,
              custom_dataset_conf: Union[CustomDatasetConf, Dict, DictConfig] = None,
              terminal_state_type: str = "RootPoseTrajTerminalStateHandler",
              init_state_type: str = "TrajInitialStateHandler",
@@ -87,6 +95,12 @@ class ImitationFactory(TaskFactory):
             if isinstance(lafan1_dataset_conf, (dict, DictConfig)):
                 lafan1_dataset_conf = LAFAN1DatasetConf(**lafan1_dataset_conf)
             all_trajs.append(cls.get_lafan1_traj(env, lafan1_dataset_conf))
+
+        # Load the HumanML3D trajectory if available
+        if humanml3d_dataset_conf is not None:
+            if isinstance(humanml3d_dataset_conf, (dict, DictConfig)):
+                humanml3d_dataset_conf = HumanML3DDatasetConf(**humanml3d_dataset_conf)
+            all_trajs.append(cls.get_humanml3d_traj(env, humanml3d_dataset_conf))
 
         # Load the custom trajectory if available
         if custom_dataset_conf is not None:
@@ -285,3 +299,36 @@ class ImitationFactory(TaskFactory):
         default_th = TrajectoryHandler(env.model, control_dt=env.dt, traj=traj)
 
         return default_th.traj
+
+    @staticmethod
+    def get_humanml3d_traj(env, conf: HumanML3DDatasetConf) -> Trajectory:
+        """
+        Loads trajectories based on HumanML3D text prompts.
+        """
+        env_name = env.__class__.__name__
+        if "Mjx" in env_name:
+            env_name = env_name.replace("Mjx", "")
+
+        prompts = conf.prompts if isinstance(conf.prompts, list) else [conf.prompts]
+        trajs = []
+
+        print(f"[HumanML3D Factory] Searching for {len(prompts)} prompts...")
+
+        for prompt in prompts:
+            amass_path = load_humanml3d_by_prompt(env_name, prompt)
+            traj = load_retargeted_amass_trajectory(env.__class__.__name__, amass_path)
+            if traj is not None:
+                # Standardize with Handler (interpolation, etc.)
+                th = TrajectoryHandler(env.model, control_dt=env.dt, traj=traj)
+                trajs.append(th.traj)
+            else:
+                print(
+                    f"[HumanML3D Factory] Warning: No trajectory found for '{prompt}'"
+                )
+
+        if not trajs:
+            raise ValueError(
+                "No HumanML3D trajectories could be loaded. Check prompts or dataset path."
+            )
+
+        return Trajectory.concatenate(trajs)

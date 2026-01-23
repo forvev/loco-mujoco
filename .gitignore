@@ -8,7 +8,6 @@ htmlcov/
 .pytest_cache/
 .coverage
 .DS_Store
-loco_mujoco/datasets/
 mushroom_rl_recordings/
 LocoMuJoCo_recordings/
 record_all/
@@ -25,3 +24,5 @@ data/
 loco_mujoco/LOCOMUJOCO_VARIABLES.yaml
 **/video2images.sh
 **/expert_traj.npz
+dataset/
+build/
