@@ -3,6 +3,9 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import loco_mujoco
+import clip
+from tqdm import tqdm
+import torch
 from difflib import get_close_matches
 from loco_mujoco.smpl.retargeting import (
     load_amass_data,
@@ -83,11 +86,113 @@ class HumanML3DIndex:
     def get_info(self, file_id: int) -> dict:
         return self.mapping.get(file_id)
 
+# class SemanticMotionSearch:
+#     """
+#     Handles semantic search over HumanML3D text descriptions using CLIP.
+#     Caches embeddings to 'humanml3d_cache.pt' for fast subsequent loading.
+#     """
+#     def __init__(self, device=None):
+#         self.device = device if device else ("cuda" if torch.cuda.is_available() else "cpu")
+#         self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        
+#         package_path = Path(loco_mujoco.__file__).resolve().parent
+#         self.project_root = package_path.parent
+#         self.texts_dir = os.path.join(self.project_root, "dataset/HumanML3D/texts")
+#         self.cache_path = os.path.join(self.project_root, "dataset/HumanML3D/humanml3d_cache.pt")
+        
+#         self.text_entries = []  # List of dicts: {'text': str, 'id': str}
+#         self.embeddings = None  # Tensor of shape [N, 512]
+        
+#         self._load_or_build_index()
+
+#     def _load_or_build_index(self):
+#         if os.path.exists(self.cache_path):
+#             logger.info(f"Loading cached embeddings from {self.cache_path}...")
+#             data = torch.load(self.cache_path, map_location=self.device)
+#             self.text_entries = data['entries']
+#             self.embeddings = data['embeddings']
+#         else:
+#             logger.info("Building semantic index (this may take a while)...")
+#             self._build_index()
+
+#     def _build_index(self):
+#         if not os.path.exists(self.texts_dir):
+#             logger.error(f"Text directory not found: {self.texts_dir}")
+#             return
+
+#         # 1. Read all text files
+#         raw_texts = []
+#         file_ids = []
+        
+#         # Only parse first line as per original logic, but iterate all files
+#         files = [f for f in os.listdir(self.texts_dir) if f.endswith(".txt")]
+        
+#         for filename in tqdm(files, desc="Reading text files"):
+#             file_id = filename.split(".")[0]
+#             path = os.path.join(self.texts_dir, filename)
+#             try:
+#                 with open(path, "r", encoding='utf-8', errors='ignore') as f:
+#                     for line in f: # Read all lines/captions in file, not just first
+#                         clean_text = line.split("#")[0].strip()
+#                         if len(clean_text) > 2: # Filter empty/short
+#                             self.text_entries.append({'text': clean_text, 'id': file_id})
+#                             raw_texts.append(clean_text)
+#             except Exception as e:
+#                 continue
+
+#         # 2. Compute Embeddings in Batches
+#         batch_size = 32
+#         all_embeddings = []
+        
+#         with torch.no_grad():
+#             for i in tqdm(range(0, len(raw_texts), batch_size), desc="Embedding texts"):
+#                 batch_texts = raw_texts[i : i + batch_size]
+#                 text_inputs = clip.tokenize(batch_texts, truncate=True).to(self.device)
+#                 batch_emb = self.model.encode_text(text_inputs)
+#                 batch_emb /= batch_emb.norm(dim=-1, keepdim=True) # Normalize
+#                 all_embeddings.append(batch_emb)
+
+#         self.embeddings = torch.cat(all_embeddings, dim=0)
+        
+#         # 3. Save Cache
+#         torch.save({
+#             'entries': self.text_entries,
+#             'embeddings': self.embeddings
+#         }, self.cache_path)
+#         logger.info(f"Saved index with {len(self.text_entries)} captions.")
+
+#     def search(self, prompt: str, top_k=1):
+#         """
+#         Embeds the prompt and finds the closest match in the database.
+#         """
+#         logger.info(f"Searching for: '{prompt}'")
+#         text_inputs = clip.tokenize([prompt], truncate=True).to(self.device)
+        
+#         with torch.no_grad():
+#             prompt_emb = self.model.encode_text(text_inputs)
+#             prompt_emb /= prompt_emb.norm(dim=-1, keepdim=True)
+            
+#             # Cosine similarity
+#             similarity = (100.0 * prompt_emb @ self.embeddings.T).softmax(dim=-1)
+#             values, indices = similarity[0].topk(top_k)
+
+#         results = []
+#         for value, index in zip(values, indices):
+#             entry = self.text_entries[index]
+#             score = value.item()
+#             results.append((entry['id'], entry['text'], score))
+            
+#         return results
+
+# # --- Global instances to avoid reloading ---
+# _search_engine = None
+# _index_handler = None
 
 def get_real_amass_path(file_id: int, index_handler: HumanML3DIndex) -> tuple:
     """
     Resolves '014597' -> '/full/path/to/BMLmovi/.../Subject_71_F_18_poses.npz'
     """
+    print(f'file_id: {file_id}')
     info = index_handler.get_info(file_id)
 
     rel_path = info["rel_path"]
@@ -162,6 +267,40 @@ def load_humanml3d_by_prompt(prompt: str) -> str:
     print(f"amass_path: {amass_path}")
 
     return amass_path
+
+# def load_humanml3d_by_prompt(prompt: str) -> str:
+#     global _search_engine, _index_handler
+    
+#     if _search_engine is None:
+#         _search_engine = SemanticMotionSearch()
+#     if _index_handler is None:
+#         _index_handler = HumanML3DIndex()
+
+#     # 1. Semantic Search
+#     results = _search_engine.search(prompt, top_k=3)
+#     if not results:
+#         logger.error("No results found.")
+#         return None
+
+#     # Pick the top result
+#     best_id, best_text, score = results[0]
+#     logger.info(f"Top Match: ID={best_id} | Score={score:.4f} | Text='{best_text}'")
+    
+#     # 2. Resolve Path
+#     amass_path, start, end = get_real_amass_path(best_id, _index_handler)
+
+#     if not amass_path:
+#         return None
+
+#     # Handle KIT path structure if necessary (retaining your original logic)
+#     if "KIT" in amass_path:
+#         # Warning: This slicing relies on strict folder structure expectations
+#         start_idx = amass_path.find("KIT")
+#         end_idx = amass_path.rfind(".")
+#         amass_path = amass_path[start_idx:end_idx]
+    
+#     print(f"Resolved amass_path: {amass_path}")
+#     return amass_path
 
 
 def load_humanml3d_entry(
