@@ -315,20 +315,13 @@ class ImitationFactory(TaskFactory):
         print(f"[HumanML3D Factory] Searching for {len(prompts)} prompts...")
 
         for prompt in prompts:
-            amass_path = load_humanml3d_by_prompt(env_name, prompt)
+            amass_path = load_humanml3d_by_prompt(prompt)
             traj = load_retargeted_amass_trajectory(env.__class__.__name__, amass_path)
             if traj is not None:
-                # Standardize with Handler (interpolation, etc.)
-                th = TrajectoryHandler(env.model, control_dt=env.dt, traj=traj)
-                trajs.append(th.traj)
+                default_th = TrajectoryHandler(env.model, control_dt=env.dt, traj=traj)
             else:
                 print(
                     f"[HumanML3D Factory] Warning: No trajectory found for '{prompt}'"
                 )
 
-        if not trajs:
-            raise ValueError(
-                "No HumanML3D trajectories could be loaded. Check prompts or dataset path."
-            )
-
-        return Trajectory.concatenate(trajs)
+        return default_th.traj

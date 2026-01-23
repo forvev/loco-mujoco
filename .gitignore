@@ -26,3 +26,4 @@ loco_mujoco/LOCOMUJOCO_VARIABLES.yaml
 **/expert_traj.npz
 dataset/
 build/
+robot_shapes/
