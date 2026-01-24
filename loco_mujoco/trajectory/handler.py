@@ -71,6 +71,9 @@ class TrajectoryHandler(StatefulObject):
         self._is_numpy = True if isinstance(traj_data.qpos, np.ndarray) else False
         self.traj = replace(traj, data=traj_data, info=traj_info)
 
+        self.embeddings = None
+        self.texts = []
+
     def len_trajectory(self, traj_ind):
         return self.traj.data.split_points[traj_ind + 1] - self.traj.data.split_points[traj_ind]
 
@@ -306,7 +309,21 @@ class TrajectoryHandler(StatefulObject):
             traj_model = self.traj.info.model.to_numpy()
             traj_info = replace(self.traj.info, model=traj_model)
             self.traj = replace(self.traj, data=self.traj.data.to_jax(), info=traj_info)
+
+            if self.embeddings is not None:
+                self.embeddings = jnp.array(self.embeddings)
+
             self._is_numpy = False
+
+    def get_current_embedding(self, carry):
+        """
+        Retrieves the embedding for the currently active trajectory.
+        """
+        if self.embeddings is None:
+            return None
+
+        traj_no = carry.traj_state.traj_no
+        return self.embeddings[traj_no]
 
     @property
     def is_numpy(self):

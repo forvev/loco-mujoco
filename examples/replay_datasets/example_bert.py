@@ -59,7 +59,7 @@ def load_embeddings_from_files(
             if os.path.exists(npy_path):
                 emb = np.load(npy_path)
                 embeddings.append(emb)
-                texts.append(str(found_id)) # TODO: we can change to text if needed
+                texts.append(str(found_id))  # TODO: we can change to text if needed
             else:
                 print(f"[WARN] Embedding file missing: {npy_path}")
                 embeddings.append(np.zeros(768))
@@ -71,11 +71,15 @@ def load_embeddings_from_files(
     return np.array(embeddings), texts
 
 
-# 2. Load Data
 embeddings_array, text_list = load_embeddings_from_files(
     dataset_paths, INDEX_PATH, EMBEDDING_DIR
 )
 
-print(f" embeddings shape: {embeddings_array.shape}, texts: {text_list}")
-# env.task.trajectory_handler.embeddings = aligned_embeddings
-# env.play_trajectory(n_episodes=3, n_steps_per_episode=500, render=True)
+
+env = ImitationFactory.make(
+    "UnitreeH1", amass_dataset_conf=AMASSDatasetConf(dataset_paths), n_substeps=20
+)
+
+env.th.embeddings = embeddings_array
+env.th.texts = text_list
+env.play_trajectory(n_episodes=3, n_steps_per_episode=500, render=True)
