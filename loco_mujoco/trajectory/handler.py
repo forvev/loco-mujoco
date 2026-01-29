@@ -14,6 +14,8 @@ class TrajState:
     traj_no: int
     subtraj_step_no: int
     subtraj_step_no_init: int
+    text_idx: int
+    embedding: jnp.ndarray
 
 
 class TrajectoryHandler(StatefulObject):
@@ -55,7 +57,7 @@ class TrajectoryHandler(StatefulObject):
         traj_data, traj_info = self.filter_and_extend(traj.data, traj.info, model)
 
         # todo: implement this in observation types in init_from_traj!
-        #self.check_if_trajectory_is_in_range(low, high, keys, joint_pos_idx, warn, clip_trajectory_to_joint_ranges)
+        # self.check_if_trajectory_is_in_range(low, high, keys, joint_pos_idx, warn, clip_trajectory_to_joint_ranges)
 
         assert (fixed_start_conf is not None) != random_start, "Please specify either fixed_start_conf or random_start."
         self.random_start = random_start
@@ -72,7 +74,7 @@ class TrajectoryHandler(StatefulObject):
         self.traj = replace(traj, data=traj_data, info=traj_info)
 
         self.embeddings = None
-        self.texts = []
+        self.text_idxs = None
 
     def len_trajectory(self, traj_ind):
         return self.traj.data.split_points[traj_ind + 1] - self.traj.data.split_points[traj_ind]
@@ -231,17 +233,22 @@ class TrajectoryHandler(StatefulObject):
         return traj_data, traj_info
 
     def init_state(self, env, key, model, data, backend):
-        return TrajState(0, 0, 0)
+        return TrajState(0, 0, 0, 0, None)
 
     def reset_state(self, env, model, data, carry, backend):
 
         key = carry.key
 
+        # decide which motion to play
         if self.random_start:
             if backend == jnp:
                 key, _k1, _k2 = jax.random.split(key, 3)
-                traj_idx = jax.random.randint(_k1, shape=(1,), minval=0, maxval=self.n_trajectories)
-                subtraj_step_idx = jax.random.randint(_k2, shape=(1,), minval=0, maxval=self.len_trajectory(traj_idx))
+                traj_idx = jax.random.randint(
+                    _k1, shape=(1,), minval=0, maxval=self.n_trajectories
+                )
+                subtraj_step_idx = jax.random.randint(
+                    _k2, shape=(1,), minval=0, maxval=self.len_trajectory(traj_idx)
+                )
                 idx = [traj_idx[0], subtraj_step_idx[0]]
             else:
                 traj_idx = np.random.randint(0, self.n_trajectories)
@@ -255,8 +262,28 @@ class TrajectoryHandler(StatefulObject):
         new_traj_no, new_subtraj_step_no = idx
         new_subtraj_step_no_init = new_subtraj_step_no
 
-        return data, carry.replace(key=key, traj_state=TrajState(new_traj_no, new_subtraj_step_no,
-                                                                 new_subtraj_step_no_init))
+        if self.text_idxs is not None and self.embeddings is not None:
+            #TODO: add JAX comability
+            if backend == jnp:
+                real_text_id = self.text_idxs[new_traj_no]
+                new_embedding = self.embeddings[new_traj_no]
+            else:
+                real_text_id = int(self.text_idxs[new_traj_no])
+                new_embedding = self.embeddings[new_traj_no]
+        else:
+            real_text_id = 0
+            new_embedding = None
+
+        return data, carry.replace(
+            key=key,
+            traj_state=TrajState(
+                new_traj_no,
+                new_subtraj_step_no,
+                new_subtraj_step_no_init,
+                text_idx=real_text_id,
+                embedding=new_embedding,
+            ),
+        )
 
     def update_state(self, env, model, data, carry, backend):
 
@@ -274,16 +301,54 @@ class TrajectoryHandler(StatefulObject):
 
         if backend == jnp:
             # check whether to go to the next trajectory
-            next_traj_no = jax.lax.cond(next_subtraj_step_no == 0, lambda t, nt: jnp.mod(t+1, nt),
-                                        lambda t, nt: t, traj_no, self.n_trajectories)
-            next_subtraj_step_no_init = jax.lax.cond(next_traj_no != traj_no, lambda: 0,
-                                                     lambda: subtraj_step_no_init)
+            next_traj_no = jax.lax.cond(
+                next_subtraj_step_no == 0,
+                lambda t, nt: jnp.mod(t + 1, nt),
+                lambda t, nt: t,
+                traj_no,
+                self.n_trajectories,
+            )
+            next_subtraj_step_no_init = jax.lax.cond(
+                next_traj_no != traj_no, lambda: 0, lambda: subtraj_step_no_init
+            )
+            # TODO: add JAX compability
+            next_text_idx = jax.lax.cond(
+                next_traj_no != traj_no,
+                lambda: self.text_idxs[next_traj_no],
+                lambda: traj_state.text_idx,
+            )
+            next_embedding = jax.lax.cond(
+                next_traj_no != traj_no,
+                lambda: self.embeddings[next_traj_no],
+                lambda: traj_state.embedding,
+            )
         else:
-            next_traj_no = traj_no if next_subtraj_step_no != 0 else (traj_no + 1) % self.n_trajectories
-            next_subtraj_step_no_init = 0 if traj_no != next_traj_no else subtraj_step_no_init
+            next_traj_no = (
+                traj_no
+                if next_subtraj_step_no != 0
+                else (traj_no + 1) % self.n_trajectories
+            )
+            next_subtraj_step_no_init = (
+                0 if traj_no != next_traj_no else subtraj_step_no_init
+            )
+            next_text_idx = (
+                self.text_idxs[next_traj_no]
+                if traj_no != next_traj_no
+                else traj_state.text_idx
+            )
+            next_embedding = (
+                self.embeddings[next_traj_no]
+                if traj_no != next_traj_no
+                else traj_state.embedding
+            )
 
-        traj_state = traj_state.replace(traj_no=next_traj_no, subtraj_step_no=next_subtraj_step_no,
-                                        subtraj_step_no_init=next_subtraj_step_no_init)
+        traj_state = traj_state.replace(
+            traj_no=next_traj_no,
+            subtraj_step_no=next_subtraj_step_no,
+            subtraj_step_no_init=next_subtraj_step_no_init,
+            text_idx=next_text_idx,
+            embedding=next_embedding,
+        )
 
         return carry.replace(traj_state=traj_state)
 

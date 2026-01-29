@@ -66,7 +66,7 @@ class ImitationFactory(TaskFactory):
         env_cls = LocoEnv.registered_envs[env_name]
 
         # Create and return the environment
-        env = env_cls(init_state_type=init_state_type, terminal_state_type=terminal_state_type, **kwargs)
+        env: LocoEnv = env_cls(init_state_type=init_state_type, terminal_state_type=terminal_state_type, **kwargs)
 
         all_trajs = []
 

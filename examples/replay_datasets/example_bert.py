@@ -16,7 +16,9 @@ INDEX_PATH = os.path.join(PROJECT_ROOT, "index.csv")
 
 # TODO: make it more scalable
 dataset_paths = [
-    "KIT/3/kick_high_left02_poses",
+    "KIT/378/push_recovery_stand_left03_poses",
+    "KIT/9/step_over_gap05_poses",
+    # "KIT/3/kick_high_left02_poses",
     "KIT/3/jump_left02_poses",
 ]
 
@@ -75,11 +77,10 @@ embeddings_array, text_list = load_embeddings_from_files(
     dataset_paths, INDEX_PATH, EMBEDDING_DIR
 )
 
-
 env = ImitationFactory.make(
     "UnitreeH1", amass_dataset_conf=AMASSDatasetConf(dataset_paths), n_substeps=20
 )
-
 env.th.embeddings = embeddings_array
-env.th.texts = text_list
+env.th.text_idxs = text_list
+
 env.play_trajectory(n_episodes=3, n_steps_per_episode=500, render=True)

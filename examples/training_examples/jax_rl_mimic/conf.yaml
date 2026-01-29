@@ -23,9 +23,13 @@ experiment:
   task_factory:
     name: ImitationFactory
     params:
-      lafan1_dataset_conf:
-        dataset_name:
-          - walk1_subject5
+      # lafan1_dataset_conf:
+      #   dataset_name:
+      #     - walk1_subject5
+      amass_dataset_conf:
+        rel_dataset_path:
+          - KIT/378/push_recovery_stand_left03_poses
+
   env_params:
     env_name: MjxUnitreeH1
     headless: True
