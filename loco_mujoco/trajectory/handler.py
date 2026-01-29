@@ -262,17 +262,23 @@ class TrajectoryHandler(StatefulObject):
         new_traj_no, new_subtraj_step_no = idx
         new_subtraj_step_no_init = new_subtraj_step_no
 
-        if self.text_idxs is not None and self.embeddings is not None:
-            #TODO: add JAX comability
-            if backend == jnp:
-                real_text_id = self.text_idxs[new_traj_no]
-                new_embedding = self.embeddings[new_traj_no]
+        if backend == jnp:
+            if self.text_idxs is None:
+                real_text_id = jnp.array(0)
             else:
+                real_text_id = jnp.take(jnp.asarray(self.text_idxs, dtype=jnp.int32), new_traj_no)
+
+            if self.embeddings is None:
+                new_embedding = None
+            else:
+                new_embedding = jnp.take(jnp.asarray(self.embeddings), new_traj_no, axis=0)
+        else:
+            if self.text_idxs is not None and self.embeddings is not None:
                 real_text_id = int(self.text_idxs[new_traj_no])
                 new_embedding = self.embeddings[new_traj_no]
-        else:
-            real_text_id = 0
-            new_embedding = None
+            else:
+                real_text_id = 0
+                new_embedding = None
 
         return data, carry.replace(
             key=key,
@@ -311,15 +317,23 @@ class TrajectoryHandler(StatefulObject):
             next_subtraj_step_no_init = jax.lax.cond(
                 next_traj_no != traj_no, lambda: 0, lambda: subtraj_step_no_init
             )
-            # TODO: add JAX compability
+
             next_text_idx = jax.lax.cond(
                 next_traj_no != traj_no,
-                lambda: self.text_idxs[next_traj_no],
+                lambda: (
+                    jnp.take(jnp.asarray(self.text_idxs, dtype=jnp.int32), next_traj_no)
+                    if self.text_idxs is not None
+                    else jnp.array(0)
+                ),
                 lambda: traj_state.text_idx,
             )
             next_embedding = jax.lax.cond(
                 next_traj_no != traj_no,
-                lambda: self.embeddings[next_traj_no],
+                lambda: (
+                    jnp.take(jnp.asarray(self.embeddings), next_traj_no, axis=0)
+                    if self.embeddings is not None
+                    else None
+                ),
                 lambda: traj_state.embedding,
             )
         else:
