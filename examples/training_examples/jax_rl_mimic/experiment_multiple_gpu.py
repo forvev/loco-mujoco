@@ -1,5 +1,8 @@
 import os
 import sys
+# for testing
+# os.environ["JAX_PLATFORM_NAME"] = "cpu"
+# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=1"
 import jax
 import jax.numpy as jnp
 import wandb
@@ -63,7 +66,7 @@ def experiment(config: DictConfig):
                 )
 
             # Use pmap to parallelize across devices
-            train_fn = jax.pmap(train_fn)
+            train_fn = jax.pmap(train_fn, axis_name="devices")
         else:
             # Fallback for single seed/device
             train_fn = jax.jit(train_fn)
@@ -75,10 +78,22 @@ def experiment(config: DictConfig):
         rng, _rng = rngs[0], jnp.squeeze(jnp.vstack(rngs[1:]))
         out = train_fn(_rng)
 
-        breakpoint()
+        # params_gpu0 = jax.tree.map(lambda x: x[0], out["agent_state"].train_state.params)
+        # params_gpu1 = jax.tree.map(lambda x: x[1], out["agent_state"].train_state.params)
+
+        # # Check the difference
+        # diff = jax.tree.map(lambda x, y: jnp.sum(jnp.abs(x - y)), params_gpu0, params_gpu1)
+        # total_diff = sum(jax.tree_util.tree_leaves(diff))
+
+        # print(f"Difference between GPU 0 and GPU 1 Weights: {total_diff}")
+
         # save agent state
         agent_state = out["agent_state"]
-        save_path = PPOJax.save_agent(result_dir, agent_conf, agent_state)
+        if config.experiment.n_seeds > 1:
+            agent_state_single = jax.tree.map(lambda x: x[0], agent_state)
+        else:
+            agent_state_single = agent_state
+        save_path = PPOJax.save_agent(result_dir, agent_conf, agent_state_single)
         run.config.update({"agent_save_path": save_path})
 
         import time

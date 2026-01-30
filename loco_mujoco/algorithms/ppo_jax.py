@@ -153,6 +153,12 @@ class PPOJax(JaxRLAlgorithmBase):
             init_x = jnp.zeros(env.info.observation_space.shape)
             network_params = network.init(_rng1, init_x)
 
+            if config.n_seeds > 1:
+                # we need to average the initial params across devices to
+                # make sure that the starting point is averaged so that they
+                # step in sync while calculating gradients
+                network_params = jax.lax.pmean(network_params, axis_name="devices")
+
         else:
             raise NotImplementedError("Loading of train state not implemented yet.")
 
@@ -290,6 +296,9 @@ class PPOJax(JaxRLAlgorithmBase):
                     total_loss, grads = grad_fn(
                         train_state.params, traj_batch, advantages, targets
                     )
+                    if config.n_seeds > 1:
+                        grads = jax.lax.pmean(grads, axis_name="devices")
+
                     train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
@@ -523,3 +532,33 @@ class PPOJax(JaxRLAlgorithmBase):
         if config.normalize_env:
             env = NormalizeVecReward(env, config.gamma)
         return env
+
+
+
+# env = TaskFactory.make("UnitreeH1")
+# total_num_envs = 4096
+# num_gpus = 2
+
+# # pmap trajectory handlers:
+
+# # maybe?:
+# jax.device_put(env1.trajectory_handler, jax.devices()[0])
+# jax.device_put(env2.trajectory_handler, jax.devices()[1])
+
+# rngs = jax.random.split(jax.random.PRNGKey(0), num_gpus * total_num_envs)
+# rngs = rngs.reshape((num_gpus, total_num_envs // num_gpus, 2))
+# env_states = jax.vmap(env.reset)(rngs)
+
+# def multi_gpu_step_fn(env_states):
+    
+#     def step_fn(env_state):
+#         obs, env_state = env_state
+#         action = jnp.zeros(env.info.action_space.shape)  # dummy action
+#         next_obs, reward, absorbing, done, info, next_env_state = env.step(env_state, action)
+#         return (next_obs, next_env_state)
+
+#     next_env_states = jax.vmap(step_fn)(env_states)
+#     return next_env_states
+
+# jax.pmap(multi_gpu_step_fn)(env_states)
+
