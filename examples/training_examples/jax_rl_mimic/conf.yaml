@@ -55,12 +55,12 @@ experiment:
         - right_foot_mimic
   hidden_layers: [512, 256]
   lr: 1e-4
-  num_envs: 2048
-  num_steps: 200
-  total_timesteps: 300e6
+  num_envs: 2048 # 64
+  num_steps: 200 # 50
+  total_timesteps: 300e6 # 30000
   update_epochs: 4
   proportion_env_reward: 0.0
-  num_minibatches: 32
+  num_minibatches: 32 # 4
   gamma: 0.99
   gae_lambda: 0.95
   clip_eps: 0.2
@@ -77,10 +77,10 @@ experiment:
   n_seeds: 1  # will automatically take seeds from 1 to n_seeds
   vmap_across_seeds: true
   validation:
-    active: true
+    active: true # false
     num_steps: 100
     num_envs: 100
-    num: 10 # set to 0 to disable validation
+    num: 10 #1 # set to 0 to disable validation
     # if none of the following is set, only the mean reward and episode length is logged
     quantities: # quantities to be used for the distance measures below
       - JointPosition
