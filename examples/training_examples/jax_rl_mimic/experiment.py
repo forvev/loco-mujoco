@@ -1,5 +1,7 @@
 import os
 import sys
+os.environ['XLA_FLAGS'] = (
+            '--xla_gpu_triton_gemm_any=True ')
 import jax
 import jax.numpy as jnp
 import wandb
@@ -79,9 +81,6 @@ def load_embeddings_from_files(
 @hydra.main(version_base=None, config_path="./", config_name="conf")
 def experiment(config: DictConfig):
     try:
-
-        os.environ['XLA_FLAGS'] = (
-            '--xla_gpu_triton_gemm_any=True ')
 
         # Accessing the current sweep number
         result_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir

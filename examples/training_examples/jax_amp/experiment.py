@@ -1,5 +1,7 @@
 import os
 import sys
+os.environ['XLA_FLAGS'] = (
+            '--xla_gpu_triton_gemm_any=True ')
 import jax
 import jax.numpy as jnp
 import wandb
@@ -21,9 +23,6 @@ def experiment(config: DictConfig):
     try:
 
         expert_dataset_path = "expert_traj.npz"
-
-        os.environ['XLA_FLAGS'] = (
-            '--xla_gpu_triton_gemm_any=True ')
 
         # Accessing the current sweep number
         result_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir

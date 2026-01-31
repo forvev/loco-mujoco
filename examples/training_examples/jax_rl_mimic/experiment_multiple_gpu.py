@@ -2,7 +2,8 @@ import os
 import sys
 # for testing
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
-# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=1"
+# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2"
+os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True "
 import jax
 import jax.numpy as jnp
 import wandb
@@ -21,8 +22,6 @@ import traceback
 @hydra.main(version_base=None, config_path="./", config_name="conf")
 def experiment(config: DictConfig):
     try:
-
-        os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True "
 
         # Accessing the current sweep number
         result_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
