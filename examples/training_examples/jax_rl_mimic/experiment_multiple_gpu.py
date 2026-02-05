@@ -1,9 +1,16 @@
 import os
 import sys
-# for testing
+
+########### for testing ###############
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
 # os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2"
+#######################################
 os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True "
+# by default JAX will preallocate 75% of the total GPU memory when the first JAX
+# operation is run.
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# to load mode than 9GB of data
+os.environ["JAX_CAPTURED_CONSTANTS_WARN_BYTES"] = "-1"
 import jax
 import jax.numpy as jnp
 import wandb
@@ -22,7 +29,8 @@ import traceback
 @hydra.main(version_base=None, config_path="./", config_name="conf")
 def experiment(config: DictConfig):
     try:
-
+        print(f"Number of devices: {jax.local_device_count()}")
+        print(f"Devices: {jax.devices()}")
         # Accessing the current sweep number
         result_dir = hydra.core.hydra_config.HydraConfig.get().runtime.output_dir
 
@@ -54,7 +62,6 @@ def experiment(config: DictConfig):
 
         n_devices = jax.local_device_count()
         # pmap training function
-        # train_fn = jax.jit(jax.vmap(train_fn)) if config.experiment.n_seeds > 1 else jax.jit(train_fn)
         if config.experiment.n_seeds > 1:
             if config.experiment.n_seeds != n_devices:
                 print(
@@ -76,15 +83,6 @@ def experiment(config: DictConfig):
         ]  # create rngs from seed
         rng, _rng = rngs[0], jnp.squeeze(jnp.vstack(rngs[1:]))
         out = train_fn(_rng)
-
-        # params_gpu0 = jax.tree.map(lambda x: x[0], out["agent_state"].train_state.params)
-        # params_gpu1 = jax.tree.map(lambda x: x[1], out["agent_state"].train_state.params)
-
-        # # Check the difference
-        # diff = jax.tree.map(lambda x, y: jnp.sum(jnp.abs(x - y)), params_gpu0, params_gpu1)
-        # total_diff = sum(jax.tree_util.tree_leaves(diff))
-
-        # print(f"Difference between GPU 0 and GPU 1 Weights: {total_diff}")
 
         # save agent state
         agent_state = out["agent_state"]
@@ -110,8 +108,12 @@ def experiment(config: DictConfig):
             validation_metrics = jax.tree.map(
                 lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), validation_metrics
             )
-            training_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), training_metrics)
-            validation_metrics = jax.tree.map(lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), validation_metrics)
+            training_metrics = jax.tree.map(
+                lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), training_metrics
+            )
+            validation_metrics = jax.tree.map(
+                lambda x: jnp.mean(jnp.atleast_2d(x), axis=0), validation_metrics
+            )
 
             # Iterating through a JAX array element-by-element in a Python loop is SLOW
             # because it triggers a transfer for every single number.

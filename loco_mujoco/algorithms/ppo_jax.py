@@ -159,9 +159,6 @@ class PPOJax(JaxRLAlgorithmBase):
                 # step in sync while calculating gradients
                 network_params = jax.lax.pmean(network_params, axis_name="devices")
 
-        else:
-            raise NotImplementedError("Loading of train state not implemented yet.")
-
         # init new train states from old params
         train_state = TrainState.create(
             apply_fn=network.apply,
@@ -532,33 +529,3 @@ class PPOJax(JaxRLAlgorithmBase):
         if config.normalize_env:
             env = NormalizeVecReward(env, config.gamma)
         return env
-
-
-
-# env = TaskFactory.make("UnitreeH1")
-# total_num_envs = 4096
-# num_gpus = 2
-
-# # pmap trajectory handlers:
-
-# # maybe?:
-# jax.device_put(env1.trajectory_handler, jax.devices()[0])
-# jax.device_put(env2.trajectory_handler, jax.devices()[1])
-
-# rngs = jax.random.split(jax.random.PRNGKey(0), num_gpus * total_num_envs)
-# rngs = rngs.reshape((num_gpus, total_num_envs // num_gpus, 2))
-# env_states = jax.vmap(env.reset)(rngs)
-
-# def multi_gpu_step_fn(env_states):
-    
-#     def step_fn(env_state):
-#         obs, env_state = env_state
-#         action = jnp.zeros(env.info.action_space.shape)  # dummy action
-#         next_obs, reward, absorbing, done, info, next_env_state = env.step(env_state, action)
-#         return (next_obs, next_env_state)
-
-#     next_env_states = jax.vmap(step_fn)(env_states)
-#     return next_env_states
-
-# jax.pmap(multi_gpu_step_fn)(env_states)
-

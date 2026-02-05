@@ -75,6 +75,7 @@ experiment:
   normalize_env: true
   debug: false
   n_seeds: 1  # will automatically take seeds from 1 to n_seeds
+  chunk_size: 100 # how many trajectories to load at once when chunking (e.g. 500 or 1000, depending on your memory constraints)
   vmap_across_seeds: true
   validation:
     active: ture # false, ture
