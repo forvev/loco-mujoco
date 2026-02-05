@@ -3,7 +3,10 @@ import sys
 
 ########### for testing ###############
 # os.environ["JAX_PLATFORM_NAME"] = "cpu"
-# os.environ["XLA_FLAGS"] = "--xla_force_host_platform_device_count=2"
+# os.environ["XLA_FLAGS"] = (
+#     "--xla_force_host_platform_device_count=2 "
+#     "--xla_gpu_triton_gemm_any=True"
+# )
 #######################################
 os.environ["XLA_FLAGS"] = "--xla_gpu_triton_gemm_any=True "
 # by default JAX will preallocate 75% of the total GPU memory when the first JAX
