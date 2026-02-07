@@ -1,4 +1,4 @@
-efaults:
+defaults:
   - override hydra/job_logging: default
   - override hydra/launcher: basic
 

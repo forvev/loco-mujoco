@@ -17,7 +17,7 @@ from typing import Union
 from types import ModuleType
 
 from loco_mujoco.core.observations.base import ObservationContainer
-
+from loco_mujoco.datasets.humanoids.HumanML3D.load import load_embedding_from_file
 
 @dataclass
 class Trajectory:
@@ -101,6 +101,9 @@ class Trajectory:
                 return array.dtype == object and np.all(array == None)
             return False
 
+        # TODO: embedding is numpy. Do we need JAX?
+        embedding, text = load_embedding_from_file(path)
+
         data = np.load(path, allow_pickle=True)
         converted_info = {}
         converted_model = {}
@@ -122,7 +125,8 @@ class Trajectory:
                 raise ValueError(f"Unknown key {key} in the npz file.")
 
         _all = {"data": TrajectoryData(**converted_data),
-                "info": TrajectoryInfo(model=TrajectoryModel(**converted_model), **converted_info)}
+                "info": TrajectoryInfo(model=TrajectoryModel(**converted_model), **converted_info, embedding=embedding, text_idx=text)}
+
         if converted_transitions:
             _all["transitions"] = TrajectoryTransitions(**converted_transitions)
         if converted_obs_container:
@@ -140,6 +144,8 @@ class TrajectoryInfo:
     frequency: float
     body_names: list[str] = None
     site_names: list[str] = None
+    text_idx: int = None
+    embedding: Union[jax.Array, np.ndarray] = None
     metadata: dict = None
 
     def __post_init__(self):
@@ -203,7 +209,7 @@ class TrajectoryInfo:
         for key in self.site_name2ind:
             if not backend.array_equal(self.site_name2ind[key], other.site_name2ind[key]):
                 return False
-
+        # TODO: compare embeddings
         # Compare other attributes
         return (
                 self.joint_names == other.joint_names

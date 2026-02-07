@@ -1,0 +1,1 @@
+from .load import load_embedding_from_file

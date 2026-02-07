@@ -42,7 +42,7 @@ from loco_mujoco import PATH_TO_SMPL_ROBOT_CONF
 from loco_mujoco.utils import setup_logger
 from loco_mujoco.core.utils.mujoco import mj_jntname2qposid, mj_jntname2qvelid
 from loco_mujoco.datasets.data_generation.utils import add_mocap_bodies
-
+from loco_mujoco.datasets.humanoids.HumanML3D.load import load_embedding_from_file
 
 OPTIMIZED_SHAPE_FILE_NAME = "shape_optimized.pkl"
 
@@ -187,7 +187,8 @@ def fit_smpl_motion(
     path_to_optimized_smpl_shape: str,
     logger: logging.Logger,
     skip_steps: bool = True,
-    visualize: bool = False
+    visualize: bool = False,
+    d_name: str = "",
 ) -> Trajectory:
     """Fit SMPL motion data to a robot configuration.
 
@@ -335,8 +336,15 @@ def fit_smpl_motion(
         mujoco.mj_id2name(env._model, mujoco.mjtObj.mjOBJ_JOINT, i) for i in range(njnt)
     ]
 
+    # add corresponding text and embedding for the trajectory
+    embedding, text_idx = load_embedding_from_file(d_name)
+
     traj_info = TrajectoryInfo(
-        jnt_names, model=TrajectoryModel(njnt, jnp.array(jnt_type)), frequency=fps
+        jnt_names,
+        model=TrajectoryModel(njnt, jnp.array(jnt_type)),
+        frequency=fps,
+        embedding=embedding,
+        text_idx=text_idx,
     )
 
     traj_data = TrajectoryData(
@@ -879,7 +887,8 @@ def load_retargeted_amass_trajectory(
                 path_to_smpl_model,
                 motion_data,
                 path_converted_shape,
-                logger
+                logger,
+                d_name,
             )
             logger.info("Using Mujoco to calculate other model-specific entities ...")
             trajectory = extend_motion(env_name, robot_conf.env_params, trajectory, logger)
