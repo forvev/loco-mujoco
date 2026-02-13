@@ -14,8 +14,6 @@ class TrajState:
     traj_no: int
     subtraj_step_no: int
     subtraj_step_no_init: int
-    text_idx: int
-    embedding: jnp.ndarray
 
 
 class TrajectoryHandler(StatefulObject):
@@ -73,8 +71,6 @@ class TrajectoryHandler(StatefulObject):
         self._is_numpy = True if isinstance(traj_data.qpos, np.ndarray) else False
         self.traj = replace(traj, data=traj_data, info=traj_info)
 
-        self.embeddings = None
-        self.text_idxs = None
 
     def len_trajectory(self, traj_ind):
         return self.traj.data.split_points[traj_ind + 1] - self.traj.data.split_points[traj_ind]
@@ -233,7 +229,7 @@ class TrajectoryHandler(StatefulObject):
         return traj_data, traj_info
 
     def init_state(self, env, key, model, data, backend):
-        return TrajState(0, 0, 0, 0, None)
+        return TrajState(0, 0, 0)
 
     def reset_state(self, env, model, data, carry, backend):
 
@@ -262,23 +258,6 @@ class TrajectoryHandler(StatefulObject):
         new_traj_no, new_subtraj_step_no = idx
         new_subtraj_step_no_init = new_subtraj_step_no
 
-        if backend == jnp:
-            if self.text_idxs is None:
-                real_text_id = jnp.array(0)
-            else:
-                real_text_id = jnp.take(jnp.asarray(self.text_idxs, dtype=jnp.int32), new_traj_no)
-
-            if self.embeddings is None:
-                new_embedding = None
-            else:
-                new_embedding = jnp.take(jnp.asarray(self.embeddings), new_traj_no, axis=0)
-        else:
-            if self.text_idxs is not None and self.embeddings is not None:
-                real_text_id = int(self.text_idxs[new_traj_no])
-                new_embedding = self.embeddings[new_traj_no]
-            else:
-                real_text_id = 0
-                new_embedding = None
 
         return data, carry.replace(
             key=key,
@@ -286,8 +265,6 @@ class TrajectoryHandler(StatefulObject):
                 new_traj_no,
                 new_subtraj_step_no,
                 new_subtraj_step_no_init,
-                text_idx=real_text_id,
-                embedding=new_embedding,
             ),
         )
 
@@ -317,25 +294,6 @@ class TrajectoryHandler(StatefulObject):
             next_subtraj_step_no_init = jax.lax.cond(
                 next_traj_no != traj_no, lambda: 0, lambda: subtraj_step_no_init
             )
-
-            next_text_idx = jax.lax.cond(
-                next_traj_no != traj_no,
-                lambda: (
-                    jnp.take(jnp.asarray(self.text_idxs, dtype=jnp.int32), next_traj_no)
-                    if self.text_idxs is not None
-                    else jnp.array(0)
-                ),
-                lambda: traj_state.text_idx,
-            )
-            next_embedding = jax.lax.cond(
-                next_traj_no != traj_no,
-                lambda: (
-                    jnp.take(jnp.asarray(self.embeddings), next_traj_no, axis=0)
-                    if self.embeddings is not None
-                    else None
-                ),
-                lambda: traj_state.embedding,
-            )
         else:
             next_traj_no = (
                 traj_no
@@ -345,23 +303,11 @@ class TrajectoryHandler(StatefulObject):
             next_subtraj_step_no_init = (
                 0 if traj_no != next_traj_no else subtraj_step_no_init
             )
-            next_text_idx = (
-                self.text_idxs[next_traj_no]
-                if traj_no != next_traj_no
-                else traj_state.text_idx
-            )
-            next_embedding = (
-                self.embeddings[next_traj_no]
-                if traj_no != next_traj_no
-                else traj_state.embedding
-            )
 
         traj_state = traj_state.replace(
             traj_no=next_traj_no,
             subtraj_step_no=next_subtraj_step_no,
             subtraj_step_no_init=next_subtraj_step_no_init,
-            text_idx=next_text_idx,
-            embedding=next_embedding,
         )
 
         return carry.replace(traj_state=traj_state)
@@ -389,20 +335,7 @@ class TrajectoryHandler(StatefulObject):
             traj_info = replace(self.traj.info, model=traj_model)
             self.traj = replace(self.traj, data=self.traj.data.to_jax(), info=traj_info)
 
-            if self.embeddings is not None:
-                self.embeddings = jnp.array(self.embeddings)
-
             self._is_numpy = False
-
-    def get_current_embedding(self, carry):
-        """
-        Retrieves the embedding for the currently active trajectory.
-        """
-        if self.embeddings is None:
-            return None
-
-        traj_no = carry.traj_state.traj_no
-        return self.embeddings[traj_no]
 
     @property
     def is_numpy(self):

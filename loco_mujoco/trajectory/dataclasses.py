@@ -125,7 +125,7 @@ class Trajectory:
                 raise ValueError(f"Unknown key {key} in the npz file.")
 
         _all = {"data": TrajectoryData(**converted_data),
-                "info": TrajectoryInfo(model=TrajectoryModel(**converted_model), **converted_info, embedding=embedding, text_idx=text)}
+                "info": TrajectoryInfo(model=TrajectoryModel(**converted_model), **converted_info)}# , embedding=embedding, text_idx=text)}
 
         if converted_transitions:
             _all["transitions"] = TrajectoryTransitions(**converted_transitions)

@@ -4,6 +4,8 @@ from dataclasses import replace
 import logging
 from typing import Union, List, Dict
 import hashlib
+import torch.nn.functional as F
+from scipy.spatial.transform import Rotation as R
 
 import yaml
 from omegaconf import DictConfig, OmegaConf
@@ -135,6 +137,145 @@ def load_amass_data(data_path: str) -> dict:
         "trans": root_trans,
         "betas": betas,
         "fps": framerate,
+    }
+
+
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Converts 6D rotation representation to rotation matrix.
+    Based on MDM's utils/rotation_conversions.py.
+    """
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
+
+
+def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as rotation matrices to quaternions.
+    Based on MDM's utils/rotation_conversions.py.
+    """
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
+
+    m00 = matrix[..., 0, 0]
+    m11 = matrix[..., 1, 1]
+    m22 = matrix[..., 2, 2]
+
+    def sqrt_positive_part(x):
+        ret = torch.zeros_like(x)
+        mask = x > 0
+        ret[mask] = torch.sqrt(x[mask])
+        return ret
+
+    o0 = 0.5 * sqrt_positive_part(1 + m00 + m11 + m22)
+    x = 0.5 * sqrt_positive_part(1 + m00 - m11 - m22)
+    y = 0.5 * sqrt_positive_part(1 - m00 + m11 - m22)
+    z = 0.5 * sqrt_positive_part(1 - m00 - m11 + m22)
+
+    o1 = torch.where(matrix[..., 2, 1] - matrix[..., 1, 2] < 0, -x, x)
+    o2 = torch.where(matrix[..., 0, 2] - matrix[..., 2, 0] < 0, -y, y)
+    o3 = torch.where(matrix[..., 1, 0] - matrix[..., 0, 1] < 0, -z, z)
+
+    return torch.stack((o0, o1, o2, o3), -1)
+
+
+def quaternion_to_axis_angle(quaternions: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as quaternions to axis/angle.
+    Based on MDM's utils/rotation_conversions.py.
+    """
+    norms = torch.norm(quaternions[..., 1:], p=2, dim=-1, keepdim=True)
+    half_angles = torch.atan2(norms, quaternions[..., :1])
+    angles = 2 * half_angles
+
+    eps = 1e-6
+    small_angles = angles.abs() < eps
+    sin_half_angles_over_angles = torch.empty_like(angles)
+    sin_half_angles_over_angles[~small_angles] = (
+        torch.sin(half_angles[~small_angles]) / angles[~small_angles]
+    )
+    sin_half_angles_over_angles[small_angles] = 0.5 - (angles[small_angles] ** 2) / 48
+
+    return quaternions[..., 1:] / sin_half_angles_over_angles
+
+
+def load_mdm_as_amass(data_path: str) -> dict:
+    """
+    Load MDM data with Y-up to Z-up coordinate transformation
+    and JAX-compatible scalar handling.
+    """
+    path_to_amass_datasets = get_amass_dataset_path()
+
+    # get paths to all amass files
+    path_to_all_amass_files = os.path.join(path_to_amass_datasets, "**/*.npz")
+    all_pkls = glob.glob(path_to_all_amass_files, recursive=True)
+
+    # get full dataset path
+    key_names = [
+        "/".join(
+            data_path.replace(path_to_amass_datasets + "/", "").split("/")
+        ).replace(".npz", "")
+        for data_path in all_pkls
+    ]
+    if data_path.startswith("/"):
+        data_path = data_path[1:]
+    data_path = data_path.replace(".npz", "")
+    data_path = all_pkls[key_names.index(data_path)]
+
+    # load data
+    npz_file = np.load(open(data_path, "rb"), allow_pickle=True)
+    entry_data = npz_file["my_array"].item()
+
+    # Coordinate Transformation: Translation (Y-up -> Z-up)
+    # MDM Output: (3, Frames) -> Transpose to (Frames, 3)
+    trans_mdm = entry_data["root_translation"].transpose(
+        1, 0
+    )  # transpose back from MDM repo
+
+    # FIX: Updated mapping for +90 degree rotation
+    # [x, y, z] (MDM) -> [x, z, y] (Loco-Mujoco)
+    trans_fixed = np.zeros_like(trans_mdm)
+    trans_fixed[:, 0] = trans_mdm[:, 0]  # X stays X
+    trans_fixed[:, 1] = -trans_mdm[:, 2]  # Old Z becomes Y (Forward/Backward)
+    trans_fixed[:, 2] = trans_mdm[:, 1]  # Old Y (Height) becomes Z (Up/Down)
+
+    # Coordinate Transformation: Poses (Root Rotation)
+    # (24, 6, 120) -> (120, 24, 6)
+    mdm_motion_6d = entry_data["thetas"].transpose(2, 0, 1)
+
+    with torch.no_grad():
+        motion_tensor = torch.from_numpy(mdm_motion_6d).float()
+        rot_mats = rotation_6d_to_matrix(motion_tensor)
+        quats = matrix_to_quaternion(rot_mats)
+        pose_aa_raw = quaternion_to_axis_angle(quats).numpy()
+
+    # FIX: Rotate the Root (Joint 0) +90 degrees instead of -90
+    root_rot_aa = pose_aa_raw[:, 0, :]
+    root_rot_obj = R.from_rotvec(root_rot_aa)
+    rx_90 = R.from_euler("x", 90, degrees=True)
+
+    new_root_rot = rx_90 * root_rot_obj
+
+    pose_aa_fixed = pose_aa_raw.copy()
+    pose_aa_fixed[:, 0, :] = new_root_rot.as_rotvec()
+
+    pose_aa = pose_aa_fixed.reshape(pose_aa_fixed.shape[0], -1)
+    # we zero out the hands (no need for locomotion)
+    pose_aa_66 = np.concatenate(
+        [pose_aa[:, :66], np.zeros((trans_fixed.shape[0], 6))], axis=-1
+    )
+
+    return {
+        "pose_aa": pose_aa_66,
+        "gender": "neutral",
+        "trans": trans_fixed,
+        "betas": np.zeros(10, dtype=np.float32),
+        "fps": float(20.0),
+        "text": str(entry_data.get("text", "")),
     }
 
 
@@ -878,7 +1019,8 @@ def load_retargeted_amass_trajectory(
         if not os.path.exists(d_path):
             logger.info(f"Dataset {i+1}/{len(dataset_name)}: "
                         f"Retargeting AMASS motion file using optimized body shape ...")
-            motion_data = load_amass_data(d_name)
+            # motion_data = load_amass_data(d_name)
+            motion_data = load_mdm_as_amass(d_name)
             path_converted_shape = os.path.join(
                 path_to_converted_amass_datasets, f"{env_name}/{OPTIMIZED_SHAPE_FILE_NAME}")
             trajectory = fit_smpl_motion(
